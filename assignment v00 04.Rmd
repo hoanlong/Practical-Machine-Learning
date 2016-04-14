@@ -1,0 +1,167 @@
+### Assignment: Prediction Assignment Writeup  
+by Hoan Long Bui
+
+#### Instructions
+
+One thing that people regularly do is quantify ***how much of a particular activity they do***, but they rarely quantify ***how well they do it***.  
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+#### Background
+
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify ***how much of a particular activity they do***, but they rarely quantify ***how well they do it***. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.  
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#### Data
+
+The training data for this project are available here:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+#### Objective
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+#### 1. Data Processing
+
+```{r, echo = FALSE, cache = TRUE}
+# set the working directory
+setwd("~/Coursera/08_Practical Machine Learning/4- Week 04/b- Assignment")
+
+# cheking for and creating directories
+if (!file.exists("./01_Data")) {dir.create("./01_Data")}
+
+# set the fileURL
+fileUrl_1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileUrl_2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download the file
+download.file(fileUrl_1, destfile = "./01_Data/pml-training.csv")
+download.file(fileUrl_2, destfile = "./01_Data/pml-testing.csv")
+
+# save the date of the download
+dateDownloaded <- date()
+write.table(dateDownloaded[[1]], "./01_Data/datedownload.txt")
+
+# load the training and testing data sets
+pml_data <- read.csv2(file = "./01_Data/pml-training.csv", header = TRUE, sep = ",", dec = ".", na.strings = c("", "NA", "#DIV/0!"))
+testcases <- read.csv2(file = "./01_Data/pml-testing.csv", header = TRUE, sep = ",", dec = ".", na.strings = c("", "NA", "#DIV/0!"))
+
+# remove the 7 first variables
+pml_data <- pml_data[, -c(1:7)]
+testcases <- testcases[, -c(1:7)]
+
+```
+
+- The first 7 variables are removed from the data set as we do not want them to be included in our classification problem. The removed variables are: "X" "user_name" "raw_timestamp_part_1" "raw_timestamp_part_2" "cvtd_timestamp" "new_window" "num_window".
+
+- The most represented classe is the classe "A" with 5580 units. The second largest classe is the classe "B" with 3797 units.
+
+```{r, echo = FALSE}
+# table of the classe variable
+table(pml_data$classe)
+
+# plot of the classe variable
+plot(pml_data$classe, col = "salmon")
+
+```
+
+
+#### 2. Data Analysis
+
+To do cross-validation, we use the training set and split it into training and test sets.  
+We build a model using the Random Forests algorithm. We then do an evaluation on the test set.  
+But before splitting the data set into the training and test sets, we first remove predictors that have near zero variance. We also remove predictors which more than 75% of the data are N/a.
+We finally take 80% of the data set to create the training set and the 20% left are for the testing set.
+
+```{r, echo = TRUE, cache = TRUE}
+# load the libraries
+library(caret)
+
+# set the seed at 1
+set.seed(1)
+
+# diagnose predictors that have one unique value
+nsv <- nearZeroVar(x = pml_data, freqCut = 95/5)
+
+# remove the nsv predictors from the data sets
+pml_data <- pml_data[, -nsv]
+testcases <- testcases[, -nsv]
+
+# remove predictors with more than 75% N/a
+pml_data <- pml_data[, colSums(is.na(pml_data))/nrow(pml_data) < 0.75]
+testcases <- testcases[, colSums(is.na(testcases))/nrow(testcases) < 0.75]
+
+# create a training and testing data sets
+inTrain <- createDataPartition(y = pml_data$classe, p = 0.8, list = FALSE)
+training <- pml_data[inTrain,]
+testing <- pml_data[-inTrain,]
+dim(training); dim(testing)
+
+```
+
+**Random forests**
+
+The classification algorithm used is the Random forests. The number of trees has been set to 1000.  
+We also plot the error vs the number of trees.
+
+```{r, echo = TRUE, cache = TRUE}
+# load the libraries
+library(randomForest)
+
+# modelling with random forest methodology
+modFit_rf <- randomForest(formula = classe ~ ., data = training, ntree = 1000, importance = TRUE)
+plot(modFit_rf)
+
+```
+
+The conclusion of the plot is that the error is convering and is stable from 100 trees. Using 1000 trees is then largely sufficient.  
+
+To have a view on the importance of the variables, the Mean Decrease Accuracy and Mean Decrease Gini are computed:
+
+```{r, echo = TRUE, cache = TRUE}
+# importance of the variables
+varImpPlot(x = modFit_rf, sort = TRUE, type = 1, nrow(modFit_rf$importance), cex = 0.7)
+varImpPlot(x = modFit_rf, sort = TRUE, type = 2, nrow(modFit_rf$importance), cex = 0.7)
+
+```
+
+We now use the model on the testing set.
+
+```{r, echo = TRUE, cache = TRUE}
+# prediction
+pred <- predict(modFit_rf, testing)
+confusionMatrix(pred, testing$classe)
+
+```
+
+If we look at some error measure:
+- the accuracy is 0.9949
+- the sensitivity and specificity for each classes are > 99.00%
+
+#### 3. Prediction exercice
+
+We finally apply our model on the test case set.  
+The results are shown here:
+
+```{r, echo = FALSE, cache = TRUE}
+
+testcases_table <- predict(modFit_rf, testcases)
+testcases_table
+
+```
+
+#### 4. Appendices
+
+A model with the Recursive Partitioning and Regression Trees algorithm has been test.
+
+```{r, echo = FALSE, cache = TRUE}
+library(rpart.plot)
+
+modFit_rpart <- train(classe ~ ., method = "rpart", data = training)
+rpart.plot(modFit_rpart$finalModel, main="Classification Tree", type = 2, extra=102, under=TRUE)
+
+```
